@@ -3,7 +3,7 @@ import torch
 import pulp
 from pathlib import Path
 import networkx as nx
-from os.path import join
+from os.path import join, exists
 from os import listdir
 import graphClass
 import random
@@ -50,7 +50,7 @@ class Environment:
 
     def solve_all(self):
         for k in self.graphs:
-            self.get_optimal_sol(self.graphs[k])
+            self.graphs[k].solution = self.get_optimal_sol(self.graphs[k])
 
     def approx_all(self):
         for k in self.graphs:
@@ -189,7 +189,7 @@ class Environment:
             for x in xv:
                 optimal += xv[x].value()
                 # print(xv[x].value())
-            self.optimals[graph] = optimal
+
 
         elif self.name == "MAXCUT":
 
@@ -230,9 +230,10 @@ class Environment:
         :return:
         """
         for _graph in self.graphs.values():
-            if _graph.solution:
-                nx.write_adjlist(_graph.g, join("data",
-                                                f"{_graph.graph_type}_{_graph.cur_n}_{_graph.seed}_{_graph.solution}_p_{_graph.p}_m_{_graph.m}.adjlist"))
+            location = join("data",
+                            f"{_graph.graph_type}_{_graph.cur_n}_{_graph.seed}_{_graph.solution}_p_{_graph.p}_m_{_graph.m}.adjlist")
+            if _graph.solution and not exists(location):
+                nx.write_adjlist(_graph.g, location)
 
     def load(self):
         """
@@ -247,7 +248,7 @@ class Environment:
         eligible_graphs = filter_filenames(files, self.args)
         for i, filename in enumerate(eligible_graphs):
             graph_copy = deepcopy(proto_graph)
-            new_graph = nx.read_adjlist(join("data",filename))
+            new_graph = nx.read_adjlist(join("data", filename), nodetype=int)
             g_type, size, seed, optimal, p, m = parse_filename(filename)
             graph_copy.replicate(g_type, new_graph, size, seed, optimal, m, p)
             self.graphs[i] = graph_copy
