@@ -1,4 +1,3 @@
-import agent
-import environment
-import graph
-
+import agentClass
+import environmentClass
+import graphClass

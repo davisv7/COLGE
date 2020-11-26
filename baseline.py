@@ -1,9 +1,9 @@
 import numpy as np
 import torch
-import graph
+import graphClass
 import models
 
-g = graph.Graph(graph_type="erdos_renyi", cur_n=50, p=.09)
+g = graphClass.Graph(graph_type="erdos_renyi", cur_n=50, p=.09)
 
 X = np.zeros((g.nodes, 3))
 
