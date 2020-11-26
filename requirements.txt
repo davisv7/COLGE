@@ -1,0 +1,6 @@
+matplotlib==3.2.1
+numpy==1.17.2
+networkx==2.5
+pulp==2.3.1
+PyYAML==5.3.1
+scipy
