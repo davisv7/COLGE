@@ -1,12 +1,28 @@
 import numpy as np
 import networkx as nx
 import collections
+import uuid
+from os.path import join
 
-
-# seed = np.random.seed(120)
 
 class Graph:
     def __init__(self, graph_type, cur_n, p, m=None, seed=None):
+        """
+        initialize a graphing problem
+        :param graph_type: type of random graph to generate
+        :param cur_n: size of graph
+        :param p: probability of being connected
+        :param m:
+        :param seed: seed used to gen graph under
+        """
+        self.graph_type = graph_type
+        self.cur_n = cur_n
+        self.seed = seed
+        self.m, self.p = "_", "_"
+        if m:
+            self.m = m
+        if p:
+            self.p = p
 
         if graph_type == 'erdos_renyi':
             self.g = nx.erdos_renyi_graph(n=cur_n, p=p, seed=seed)
@@ -14,8 +30,10 @@ class Graph:
             self.g = nx.powerlaw_cluster_graph(n=cur_n, m=m, p=p, seed=seed)
         elif graph_type == 'barabasi_albert':
             self.g = nx.barabasi_albert_graph(n=cur_n, m=m, seed=seed)
-        elif graph_type =='gnp_random_graph':
+        elif graph_type == 'gnp_random_graph':
             self.g = nx.gnp_random_graph(n=cur_n, p=p, seed=seed)
+
+        self.solution = None
 
         # power=0.75
         #
@@ -28,7 +46,6 @@ class Graph:
         # for node in self.g.nodes:
         #     self.nodedistdict[node]=float(len(nx.neighbors(self.g,node)))**power/float(len(self.g.edges))
 
-
     def nodes(self):
 
         return nx.number_of_nodes(self.g)
@@ -39,7 +56,7 @@ class Graph:
 
     def neighbors(self, node):
 
-        return nx.all_neighbors(self.g,node)
+        return nx.all_neighbors(self.g, node)
 
     def average_neighbor_degree(self, node):
 
@@ -48,3 +65,8 @@ class Graph:
     def adj(self):
 
         return nx.adjacency_matrix(self.g)
+
+    # def save(self):
+    #
+    #     nx.write_adjlist(self.g, join("data", f"{self.uniqueid}_{}_{}.adjlist"))
+#
