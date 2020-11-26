@@ -7,6 +7,8 @@ from os.path import join
 from os import listdir
 import graphClass
 import random
+from itertools import takewhile
+from copy import deepcopy
 
 """
 This file contains the definition of the environment
@@ -19,28 +21,24 @@ class Environment:
     def __init__(self, args):
         self.args = args
         self.graphs = {}
-        self.optimals = {}
+        self.approximals = {}
         self.seeds = []
+        self.name = args.environment_name
         self.starter_seed = random.randint(0, 100000000)
 
         # TODO: Check to see if enough graphs with these arguments and if so, load them instead
-        # enumerate training graphs
-        # uniqueID_name(type)_optimal
-        # f"{_graph.graph_type}_{_graph.cur_n}_{_graph.seed}_p_{_graph.p}_m_{_graph.m}.adjlist"))
-        # file_list = listdir("data")
-
-        # args.graph_nbr
-        if len(self.graphs) < args.graph_nbr:
-            self.generate()
+        self.load()
+        self.generate()
 
         # TODO: load the ones that do and generate the rest
         # TODO: find their solutions first, and then save them
-
-        self.name = args.environment_name
+        self.solve_all()
+        self.save()
 
     def generate(self):
-        for graph_ in range(self.args.graph_nbr):
-            seed = np.random.seed(self.starter_seed + graph_)
+        for graph_ in range(len(self.graphs), self.args.graph_nbr):
+            seed = self.starter_seed + graph_
+            np.random.seed(seed)
             self.seeds.append(seed)
 
             self.graphs[graph_] = graphClass.Graph(
@@ -50,6 +48,14 @@ class Environment:
                 m=self.args.m,
                 seed=seed)
 
+    def solve_all(self):
+        for k in self.graphs:
+            self.get_optimal_sol(self.graphs[k])
+
+    def approx_all(self):
+        for k in self.graphs:
+            self.get_approx(self.graphs[k])
+        pass
 
     def reset(self, g):
         self.games = g
@@ -124,7 +130,12 @@ class Environment:
 
             return (change_reward, done)
 
-    def get_approx(self):
+    def get_approx(self, graph=None):
+        if graph == None:
+            graph = self.current_graph
+        approx = self.approximals.get(graph, None)
+        if approx:
+            return approx
 
         if self.name == "MVC":
             cover_edge = []
@@ -150,14 +161,16 @@ class Environment:
         else:
             return 'you pass a wrong environment name'
 
-    def get_optimal_sol(self):
-        optimal = self.optimals.get(self.current_graph, None)
+    def get_optimal_sol(self, graph=None):
+        if graph == None:
+            graph = self.current_graph
+        optimal = graph.solution
         if optimal:
             return optimal
 
         if self.name == "MVC":
 
-            x = list(range(self.current_graph.g.number_of_nodes()))
+            x = list(range(graph.g.number_of_nodes()))
             xv = pulp.LpVariable.dicts('is_opti', x,
                                        lowBound=0,
                                        upBound=1,
@@ -167,7 +180,7 @@ class Environment:
 
             mdl += sum(xv[k] for k in xv)
 
-            for edge in self.current_graph.edges():
+            for edge in graph.edges():
                 mdl += xv[edge[0]] + xv[edge[1]] >= 1, "constraint :" + str(edge)
             mdl.solve()
 
@@ -176,12 +189,12 @@ class Environment:
             for x in xv:
                 optimal += xv[x].value()
                 # print(xv[x].value())
-            self.optimals[self.current_graph] = self.current_graph.solution
+            self.optimals[graph] = optimal
 
         elif self.name == "MAXCUT":
 
-            x = list(range(self.current_graph.g.number_of_nodes()))
-            e = list(self.current_graph.edges())
+            x = list(range(graph.g.number_of_nodes()))
+            e = list(graph.edges())
             xv = pulp.LpVariable.dicts('is_opti', x,
                                        lowBound=0,
                                        upBound=1,
@@ -207,18 +220,72 @@ class Environment:
             # print("Status:", pulp.LpStatus[mdl.status])
             optimal = mdl.objective.value()
 
-        self.current_graph.solution = optimal
+        graph.solution = optimal
         return optimal
 
     def save(self):
+        """
+        Save all graphs that have a solution
+        filename has all of the argument information in the title
+        :return:
+        """
         for _graph in self.graphs.values():
-            optimal = self.optimals.get(_graph, None)
-            if optimal:
-                nx.write_adjlist(_graph, join("data",
-                                              f"{_graph.graph_type}_{_graph.cur_n}_{_graph.seed}_{self.optimals[_graph]}_p_{_graph.p}_m_{_graph.m}.adjlist"))
+            if _graph.solution:
+                nx.write_adjlist(_graph.g, join("data",
+                                                f"{_graph.graph_type}_{_graph.cur_n}_{_graph.seed}_{_graph.solution}_p_{_graph.p}_m_{_graph.m}.adjlist"))
 
-    # def load(self):
-    # DG = nx.read_adjlist(join("data", f"{uniqueid}.adjlist"))
+    def load(self):
+        """
+        List directory
+        Load graphs that match the arguments
+        Add them to the dictionary and return
+        :return:
+        """
+        proto_graph = graphClass.Graph("prototype", self.args.node)
+
+        files = listdir("data")
+        eligible_graphs = filter_filenames(files, self.args)
+        for i, filename in enumerate(eligible_graphs):
+            graph_copy = deepcopy(proto_graph)
+            new_graph = nx.read_adjlist(join("data",filename))
+            g_type, size, seed, optimal, p, m = parse_filename(filename)
+            graph_copy.replicate(g_type, new_graph, size, seed, optimal, m, p)
+            self.graphs[i] = graph_copy
+
 
 # TODO: Testing Environment vs Training Environment
 # How to share the models? Or just have a separate method...
+
+def filename_filter(filename, args):
+    g_type, size, seed, optimal, p, m = parse_filename(filename)
+    if g_type == args.graph_type and size == args.node and p == args.p and m == args.m:
+        return True
+
+
+def filter_filenames(filenames, args):
+    return list(filter(lambda file: filename_filter(file, args), filenames))
+
+
+def parse_filename(filename):
+    # parameters:  type_size_seed_optimal_p_m
+    g_type = "".join(takewhile(lambda x: not x.isnumeric(), filename)).rstrip("_")
+
+    filename = filename.replace(g_type, "").replace(".adjlist", "").lstrip("_")
+    params = filename.split("_")
+
+    p = None
+    m = None
+    size, seed, optimal, *rest = params
+
+    pindex = rest.index("p")
+    mindex = rest.index("m")
+    if rest[pindex + 1] != "":
+        p = float(rest[pindex + 1])
+    if rest[mindex + 1] != "":
+        m = float(rest[mindex + 1])
+
+    size = int(size)
+    seed = int(seed)
+    optimal = float(optimal)
+
+    return g_type, size, seed, optimal, p, m

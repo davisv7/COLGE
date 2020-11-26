@@ -6,7 +6,7 @@ from os.path import join
 
 
 class Graph:
-    def __init__(self, graph_type, cur_n, p, m=None, seed=None):
+    def __init__(self, graph_type, cur_n=0, p=None, m=None, seed=None):
         """
         initialize a graphing problem
         :param graph_type: type of random graph to generate
@@ -23,7 +23,8 @@ class Graph:
             self.m = m
         if p:
             self.p = p
-
+        if graph_type == "prototype":
+            pass
         if graph_type == 'erdos_renyi':
             self.g = nx.erdos_renyi_graph(n=cur_n, p=p, seed=seed)
         elif graph_type == 'powerlaw':
@@ -65,6 +66,18 @@ class Graph:
     def adj(self):
 
         return nx.adjacency_matrix(self.g)
+
+    def replicate(self, g_type, graph, cur_n, seed, solution, m, p):
+        self.graph_type = g_type
+        self.g = graph
+        self.cur_n = cur_n
+        self.seed = seed
+        self.solution = solution
+        self.m, self.p = "_", "_"
+        if m:
+            self.m = m
+        if p:
+            self.p = p
 
     # def save(self):
     #
