@@ -9,6 +9,7 @@ import graphClass
 import random
 from itertools import takewhile
 from copy import deepcopy
+from common_utils import *
 
 """
 This file contains the definition of the environment
@@ -26,11 +27,12 @@ class Environment:
         self.name = args.environment_name
         self.starter_seed = random.randint(0, 100000000)
 
-        # TODO: Check to see if enough graphs with these arguments and if so, load them instead
+        # TODO: Check to see if enough graphs with these arguments and if so,
         self.load()
+        # load them
         self.generate()
 
-        # TODO: load the ones that do and generate the rest
+        # TODO: load the ones that exist and generate the rest
         # TODO: find their solutions first, and then save them
         self.solve_all()
         self.save()
@@ -61,10 +63,11 @@ class Environment:
         self.games = g
         self.current_graph = self.graphs[self.games]
         self.nodes = self.current_graph.nodes()
-        self.nbr_of_nodes = 0
-        self.edge_add_old = 0
+        self.nbr_nodes_selected = 0
+        self.old_edges_covered = 0
         self.last_reward = 0
         self.observation = torch.zeros(1, self.nodes, 1, dtype=torch.float)
+        self.cumulative_reward = 0
 
     def observe(self):
         """Returns the current observation that the agent can make
@@ -75,8 +78,8 @@ class Environment:
     def act(self, node):
 
         self.observation[:, node, :] = 1
-        reward = self.get_reward(self.observation, node)
-        return reward
+        reward, done = self.get_reward(self.observation, node)
+        return reward, done
 
     def get_reward(self, observation, node):
 
@@ -84,31 +87,47 @@ class Environment:
 
             new_nbr_nodes = np.sum(observation[0].numpy())
 
-            if new_nbr_nodes - self.nbr_of_nodes > 0:
-                reward = -1  # np.round(-1.0/20.0,3)
-            else:
-                reward = 0
-
-            self.nbr_of_nodes = new_nbr_nodes
+            self.nbr_nodes_selected = new_nbr_nodes
 
             # Minimum vertex set:
 
             done = True
 
-            edge_add = 0
+            edges_covered = 0
 
             for edge in self.current_graph.edges():
                 if observation[:, edge[0], :] == 0 and observation[:, edge[1], :] == 0:
                     done = False
                     # break
                 else:
-                    edge_add += 1
+                    edges_covered += 1
 
-            # reward = ((edge_add - self.edge_add_old) / np.max(
+            # reward = ((edges_covered - self.edge_add_old) / np.max(
             #   [1, self.graph_init.average_neighbor_degree([node])[node]]) - 10)/100
 
-            self.edge_add_old = edge_add
+            if done:
+                reward = self.args.node - self.nbr_nodes_selected
+            else:
+                avg_edges_covered = (len(self.current_graph.edges()) / self.args.node)
+                avg_edges_selected = avg_edges_covered * self.nbr_nodes_selected
+                new_edges_covered = self.old_edges_covered - edges_covered
+                ratio_covered = edges_covered / len(self.current_graph.edges())
+                ratio_uncovered = 1 - ratio_covered
+                # we want to maximize avg_edges_selected and minimize nbr_nodes_selected
+                # just because the avg_edges_selected high
 
+                if edges_covered > avg_edges_covered:
+                    reward = (new_edges_covered - avg_edges_selected)
+                    # punish if less than average edges selected
+                    # we don't want to reward bad moves that happen after a good move
+                elif new_edges_covered > avg_edges_selected:
+                    reward = 1
+                else:
+                    reward = -2
+
+                self.old_edges_covered = edges_covered
+
+            self.cumulative_reward += reward
             return (reward, done)
 
         elif self.name == "MAXCUT":
@@ -246,47 +265,14 @@ class Environment:
 
         files = listdir("data")
         eligible_graphs = filter_filenames(files, self.args)
-        for i, filename in enumerate(eligible_graphs):
+        if len(eligible_graphs) > self.args.graph_nbr:
+            random.shuffle(eligible_graphs)
+        for i, filename in enumerate(eligible_graphs[:self.args.graph_nbr]):
             graph_copy = deepcopy(proto_graph)
             new_graph = nx.read_adjlist(join("data", filename), nodetype=int)
             g_type, size, seed, optimal, p, m = parse_filename(filename)
             graph_copy.replicate(g_type, new_graph, size, seed, optimal, m, p)
             self.graphs[i] = graph_copy
 
-
 # TODO: Testing Environment vs Training Environment
 # How to share the models? Or just have a separate method...
-
-def filename_filter(filename, args):
-    g_type, size, seed, optimal, p, m = parse_filename(filename)
-    if g_type == args.graph_type and size == args.node and p == args.p and m == args.m:
-        return True
-
-
-def filter_filenames(filenames, args):
-    return list(filter(lambda file: filename_filter(file, args), filenames))
-
-
-def parse_filename(filename):
-    # parameters:  type_size_seed_optimal_p_m
-    g_type = "".join(takewhile(lambda x: not x.isnumeric(), filename)).rstrip("_")
-
-    filename = filename.replace(g_type, "").replace(".adjlist", "").lstrip("_")
-    params = filename.split("_")
-
-    p = None
-    m = None
-    size, seed, optimal, *rest = params
-
-    pindex = rest.index("p")
-    mindex = rest.index("m")
-    if rest[pindex + 1] != "":
-        p = float(rest[pindex + 1])
-    if rest[mindex + 1] != "":
-        m = float(rest[mindex + 1])
-
-    size = int(size)
-    seed = int(seed)
-    optimal = float(optimal)
-
-    return g_type, size, seed, optimal, p, m

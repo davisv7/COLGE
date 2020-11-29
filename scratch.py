@@ -6,6 +6,7 @@ import logging
 import numpy as np
 import networkx as nx
 import sys
+from time import sleep
 
 # Set up logger
 logging.basicConfig(
@@ -29,15 +30,15 @@ parser.add_argument('--graph_nbr', type=int, default='100',
                     help='number of different graphs to generate for the training sample')
 parser.add_argument('--node', type=int, metavar='nnode', default=20, help="number of node in generated graphs")
 parser.add_argument('--p', type=float, default=None, help="p, parameter in graph degree distribution")
-parser.add_argument('--m', type=float, default=None, help="m, parameter in graph degree distribution")
+parser.add_argument('--m', type=int, default=None, help="m, parameter in graph degree distribution")
 
 # Simulation Parameters
 # parser.add_argument('--ngames', type=int, metavar='n', default='500', help='number of games to simulate')
 parser.add_argument('--niter', type=int, metavar='n', default='1000', help='max number of iterations per game')
-parser.add_argument('--epoch', type=int, metavar='nepoch', default=1, help="number of epochs")
+parser.add_argument('--epoch', type=int, metavar='nepoch', default=5, help="number of epochs")
 parser.add_argument('--bs', type=int, default=32, help="minibatch size for training")
-parser.add_argument('--n_step', type=int, default=3, help="n step in RL")
-parser.add_argument('--batch', type=int, metavar='nagent', default=None,
+parser.add_argument('--n_step', type=int, default=10, help="n step in RL")
+parser.add_argument('--batch', type=int, metavar='nagent', default=10,
                     help='batch run several agent at the same time')
 parser.add_argument('--verbose', action='store_true', default=True, help='Display cumulative results at each step')
 
@@ -72,18 +73,18 @@ def main():
 
     print("Running a single instance simulation...")
     number_of_epochs, number_of_games, max_iter = args.epoch, args.graph_nbr, args.niter
-    cumul_reward = 0.0
     list_cumul_reward = []
     list_optimal_ratio = []
     list_aprox_ratio = []
+    epoch_list = [[] for i in range(number_of_epochs)]
 
     for epoch_ in range(number_of_epochs):
         print(f"{epoch_}/{number_of_epochs} epochs")
 
         for g in range(number_of_games):
-            print(f"{g}/{number_of_games} games")
+            print(f"{g + 1}/{number_of_games} games")
 
-            for repeat in range(1):  # replay environment 1 times
+            for repeat in range(5):  # replay environment 1 times
 
                 # update to new environment and reset agent
                 environment.reset(g)
@@ -92,40 +93,46 @@ def main():
 
                 cumul_reward = 0.0
                 iteration = 0
-                while iteration < max_iter and not done:
+                while iteration < args.node and not done:
                     (obs, act, rew, done) = step(environment, agent)
                     cumul_reward += rew
                     iteration += 1
                     if args.verbose:
+                        pass
                         # print(" ->       observation: {}".format(obs))
                         # print(" ->            action: {}".format(act))
                         # print(" ->            reward: {}".format(rew))
                         # print(" -> cumulative reward: {}".format(cumul_reward))
-                        if done:
-                            # solution from baseline algorithm
-                            approx_sol = environment.get_approx()
+                        # sleep(1)
 
-                            # optimal solution
-                            optimal_sol = environment.get_optimal_sol()
+                # solution from baseline algorithm
+                approx_sol = environment.get_approx()
 
-                            # we add in a list the solution found by the NN algorithm
-                            list_cumul_reward.append(-cumul_reward)
+                # optimal solution
+                optimal_sol = environment.get_optimal_sol()
 
-                            # we add in a list the ratio between the NN solution and the optimal solution
-                            list_optimal_ratio.append(cumul_reward / (optimal_sol))
+                # we add in a list the solution found by the NN algorithm
+                list_cumul_reward.append(-cumul_reward)
 
-                            # we add in a list the ratio between the NN solution and the baseline solution
-                            list_aprox_ratio.append(cumul_reward / (approx_sol))
+                # we add in a list the ratio between the NN solution and the optimal solution
+                list_optimal_ratio.append(cumul_reward / (optimal_sol))
 
-                            # print cumulative reward of one play, it is actually the solution found by the NN algorithm
-                            print(" ->    Terminal event: cumulative rewards = {}".format(cumul_reward))
+                # we add in a list the ratio between the NN solution and the baseline solution
+                list_aprox_ratio.append(cumul_reward / (approx_sol))
 
-                            # print optimal solution
-                            print(" ->    Optimal solution = {}".format(optimal_sol))
+                # print cumulative reward of one play, it is actually the solution found by the NN algorithm
+                print(" ->    Terminal event: cumulative rewards = {}".format(cumul_reward))
+                print(" ->    Number of nodes picked = {}".format(iteration))
+
+                # print optimal solution
+                print(" ->    Optimal solution = {}\n".format(optimal_sol))
 
             if args.verbose:
-                print(" <=> Finished game number: {} <=>".format(g))
+                print(" <=> Finished game number: {} <=>".format(g + 1))
                 print("")
+            # TODO: After each epoch, run a test
+            # Run a test
+            # Need a test environment, with unseen graphs
 
     np.savetxt('test.out', list_cumul_reward, delimiter=',')
     np.savetxt('opt_set.out', list_optimal_ratio, delimiter=',')
