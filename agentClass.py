@@ -8,6 +8,7 @@ from utils.config import load_model_config
 
 import torch.nn.functional as F
 import torch
+from collections import deque
 
 # Set up logger
 logging.basicConfig(
@@ -35,19 +36,19 @@ class DQAgent:
         self.lambd = 0.
         self.n_step = n_step
 
-        self.epsilon_ = 1
+        self.epsilon_ = 0.2
         self.epsilon_min = 0.02
-        self.discount_factor = 0.999990
+        self.decay_factor = 0.99990  # TODO Dynamic value for custom convergence
         # self.eps_end=0.02
         # self.eps_start=1
         # self.eps_step=20000
         self.t = 1
-        self.memory = []
-        self.memory_n = []
+        self.memory = deque(maxlen=10000)  # TODO: Determine reasonable sizes dynamically
+        self.memory_n = deque(maxlen=10000)
         self.minibatch_length = bs
 
+        # decide model
         if self.model_name == 'S2V_QN_1':
-
             args_init = load_model_config()[self.model_name]
             self.model = models.S2V_QN_1(**args_init)
 
@@ -55,33 +56,34 @@ class DQAgent:
             args_init = load_model_config()[self.model_name]
             self.model = models.S2V_QN_2(**args_init)
 
-
         elif self.model_name == 'GCN_QN_1':
-
             args_init = load_model_config()[self.model_name]
             self.model = models.GCN_QN_1(**args_init)
 
         elif self.model_name == 'LINE_QN':
-
             args_init = load_model_config()[self.model_name]
             self.model = models.LINE_QN(**args_init)
 
         elif self.model_name == 'W2V_QN':
-
             args_init = load_model_config()[self.model_name]
             self.model = models.W2V_QN(G=self.graphs[self.games], **args_init)
 
         self.criterion = torch.nn.MSELoss(reduction='sum')
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-        self.T = 5
-
+        self.T = 5  # iterations on graph
         self.t = 1
 
     """
     p : embedding dimension
-       
     """
+
+    def calc_convergence(self):
+        pass
+        # take size of graph, number of graphs and when you want to converge by and calc a discount factor
+        # size and number graphs determines number of discounts per epoch
+        # take min epsilon value and calc value x s.t og_epsilon*(x^total_discounts) = min epsilon
+        # return x
 
     def reset(self, g):
 
@@ -113,8 +115,7 @@ class DQAgent:
 
     def reward(self, observation, action, reward, done):
 
-        if len(self.memory_n) > self.minibatch_length + self.n_step:  # or self.games > 2:
-
+        if len(self.memory_n) > self.minibatch_length + self.n_step:
             (last_observation_tens, action_tens, reward_tens, observation_tens, done_tens, adj_tens) = self.get_sample()
             target = reward_tens + self.gamma * (1 - done_tens) * \
                      torch.max(self.model(observation_tens, adj_tens) + observation_tens * (-1e5), dim=1)[0]
@@ -128,14 +129,12 @@ class DQAgent:
             self.optimizer.step()
             # print(self.t, loss)
 
-            # self.epsilon = self.eps_end + max(0., (self.eps_start- self.eps_end) * (self.eps_step - self.t) / self.eps_step)
-            if self.epsilon_ > self.epsilon_min:
-                self.epsilon_ *= self.discount_factor
         if self.iter > 1:
             self.remember(self.last_observation, self.last_action, self.last_reward, observation.clone(),
                           self.last_done * 1)
 
         if done & self.iter > self.n_step:
+            # if done:
             self.remember_n(False)
             new_observation = observation.clone()
             new_observation[:, action, :] = 1
@@ -149,6 +148,7 @@ class DQAgent:
         self.last_observation = observation.clone()
         self.last_reward = reward
         self.last_done = done
+        self.epsilon_ = max(self.epsilon_min, self.epsilon_ * self.decay_factor)
 
     def get_sample(self):
 
@@ -193,13 +193,8 @@ class DQAgent:
                 cum_reward = step_init[2]
                 for step in range(1, self.n_step - i):
                     cum_reward += self.memory[-step][2]
-                if i == self.n_step - 1:
-                    self.memory_n.append(
-                        (step_init[0], step_init[1], cum_reward, self.memory[-1][-3], False, self.memory[-1][-1]))
-
-                else:
-                    self.memory_n.append(
-                        (step_init[0], step_init[1], cum_reward, self.memory[-1][-3], False, self.memory[-1][-1]))
+                self.memory_n.append(
+                    (step_init[0], step_init[1], cum_reward, self.memory[-1][-3], False, self.memory[-1][-1]))
 
     def save_model(self):
         cwd = os.getcwd()
