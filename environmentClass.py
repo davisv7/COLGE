@@ -22,7 +22,6 @@ class Environment:
     def __init__(self, args):
         self.args = args
         self.graphs = {}
-        self.approximals = {}
         self.seeds = []
         self.name = args.environment_name
         self.starter_seed = random.randint(0, 100000000)
@@ -152,6 +151,7 @@ class Environment:
                 # remove node from node list
                 nodes.remove(best_node)
                 count += 1
+            graph.approx = count
             return count
 
 
