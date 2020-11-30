@@ -77,16 +77,14 @@ class S2V_QN_1(torch.nn.Module):
                 # mu_1 = self.mu_1(xv).clamp(0)
                 mu_1 = torch.matmul(obs, self.mu_1).clamp(0)
                 # mu_1.transpose_(1,2)
+
                 # before pooling:
                 for i in range(self.len_pre_pooling):
                     mu = self.list_pre_pooling[i](mu).clamp(0)
-
-                mu_pool = torch.matmul(adj, mu)
-
+                mu_pool = torch.matmul(adj, mu)  # zeroes out non existent edges
                 # after pooling
                 for i in range(self.len_post_pooling):
                     mu_pool = self.list_post_pooling[i](mu_pool).clamp(0)
-
                 mu_2 = self.mu_2(mu_pool)
                 mu = torch.add(mu_1, mu_2).clamp(0)
 
@@ -96,7 +94,7 @@ class S2V_QN_1(torch.nn.Module):
         # expand can be ignored, i think
 
         q_2 = self.q_2(mu)
-        q_ = torch.cat((q_1, q_2), dim=-1) # -1 appends q_2 element wise to q_1
+        q_ = torch.cat((q_1, q_2), dim=-1)  # -1 appends q_2 element wise to q_1
 
         if self.reg_hidden > 0:
             q_reg = self.q_reg(q_).clamp(0)
