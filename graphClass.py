@@ -25,7 +25,7 @@ class Graph:
             self.p = p
         if graph_type == "prototype":
             pass
-        if graph_type == 'erdos_renyi':
+        elif graph_type == 'erdos_renyi':
             self.g = nx.erdos_renyi_graph(n=cur_n, p=p, seed=seed)
         elif graph_type == 'powerlaw':
             self.g = nx.powerlaw_cluster_graph(n=cur_n, m=m, p=p, seed=seed)
