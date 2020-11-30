@@ -38,15 +38,17 @@ class DQAgent:
 
         self.epsilon_ = 0.2
         self.epsilon_min = 0.02
-        self.decay_factor = 0.99990  # TODO Dynamic value for custom convergence
+        self.decay_factor = 1  # overwritten by self.calc_convergence to converge in one epoch
+        self.memory = deque(maxlen=1)  #
+        self.memory_n = deque(maxlen=1)  #
+        self.decay = True
         # self.eps_end=0.02
         # self.eps_start=1
         # self.eps_step=20000
+        self.T = 5  # iterations on graph
         self.t = 1
-        self.memory = deque(maxlen=10000)  # TODO: Determine reasonable sizes dynamically
-        self.memory_n = deque(maxlen=10000)
         self.minibatch_length = bs
-
+        self.games = 0
         # decide model
         if self.model_name == 'S2V_QN_1':
             args_init = load_model_config()[self.model_name]
@@ -71,22 +73,28 @@ class DQAgent:
         self.criterion = torch.nn.MSELoss(reduction='sum')
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-        self.T = 5  # iterations on graph
-        self.t = 1
+        self.reset(self.games)
 
     """
     p : embedding dimension
     """
 
-    def calc_convergence(self):
-        pass
+    def game_based_params(self, games):
         # take size of graph, number of graphs and when you want to converge by and calc a discount factor
-        # size and number graphs determines number of discounts per epoch
-        # take min epsilon value and calc value x s.t og_epsilon*(x^total_discounts) = min epsilon
+        # size and number graphs determines max number of discounts per epoch
+        # calc value x s.t og_epsilon*(x^max_discounts) = min epsilon
         # return x
+        max_steps = self.nodes
+        max_discounts = max_steps * games
+        self.decay_factor = (self.epsilon_min / self.epsilon_) ** (1 / max_discounts)
+        self.memory = deque(maxlen=max_discounts)
+        self.memory_n = deque(maxlen=max_discounts)
 
     def reset(self, g):
-
+        if g == self.games and g != 0:
+            self.decay = False
+        else:
+            self.decay = True
         self.games = g
 
         if (len(self.memory_n) != 0) and (len(self.memory_n) % 300000 == 0):
@@ -148,7 +156,8 @@ class DQAgent:
         self.last_observation = observation.clone()
         self.last_reward = reward
         self.last_done = done
-        self.epsilon_ = max(self.epsilon_min, self.epsilon_ * self.decay_factor)
+        if self.decay:
+            self.epsilon_ = max(self.epsilon_min, self.epsilon_ * self.decay_factor)
 
     def get_sample(self):
 
