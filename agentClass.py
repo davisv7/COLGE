@@ -36,8 +36,8 @@ class DQAgent:
         self.lambd = 0.
         self.n_step = n_step
 
-        self.epsilon_ = 0.2
-        self.epsilon_min = 0.02
+        self.epsilon_ = 1
+        self.epsilon_min = 0.01
         self.decay_factor = 1  # overwritten by self.calc_convergence to converge in one epoch
         self.memory = deque(maxlen=1)  #
         self.memory_n = deque(maxlen=1)  #
@@ -45,7 +45,6 @@ class DQAgent:
         # self.eps_end=0.02
         # self.eps_start=1
         # self.eps_step=20000
-        self.T = 5  # iterations on graph
         self.t = 1
         self.minibatch_length = bs
         self.games = 0
@@ -112,14 +111,19 @@ class DQAgent:
         self.last_done = 0
         self.iter = 1
 
-    def act(self, observation):
+    def act(self, observation, test=False):
 
-        if self.epsilon_ > np.random.rand():
+        if self.epsilon_ > np.random.rand() and not test:
             return np.random.choice(np.where(observation.numpy()[0, :, 0] == 0)[0])
         else:
             q_a = self.model(observation, self.adj)
             q_a = q_a.detach().numpy()
-            return np.where((q_a[0, :, 0] == np.max(q_a[0, :, 0][observation.numpy()[0, :, 0] == 0])))[0][0]
+            # get index of first unobserved node with max q value
+            # return np.where((q_a[0, :, 0] == np.max(q_a[0, :, 0][observation.numpy()[0, :, 0] == 0])))[0][0]
+            # get action with best q value, break ties randomly
+            maxes = np.flatnonzero((q_a[0, :, 0] == np.max(q_a[0, :, 0][observation.numpy()[0, :, 0] == 0])))
+            choice = np.random.choice(maxes)
+            return choice
 
     def reward(self, observation, action, reward, done):
 
