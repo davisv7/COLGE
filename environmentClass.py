@@ -136,7 +136,7 @@ class Environment:
     def get_approx(self, graph=None):  # greedy approx
         if graph == None:
             graph = self.current_graph
-        approx = self.approximals.get(graph, None)
+        approx = graph.approx
         if approx:
             return approx
 
