@@ -35,6 +35,7 @@ class Graph:
             self.g = nx.gnp_random_graph(n=cur_n, p=p, seed=seed)
 
         self.solution = None
+        self.approx = None
 
         # power=0.75
         #
