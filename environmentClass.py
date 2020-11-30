@@ -27,15 +27,11 @@ class Environment:
         self.name = args.environment_name
         self.starter_seed = random.randint(0, 100000000)
 
-        # TODO: Check to see if enough graphs with these arguments and if so,
-        self.load()
-        # load them
-        self.generate()
+        self.load()  # load existing graphs
+        self.generate()  # generate remaining graphs
 
-        # TODO: load the ones that exist and generate the rest
-        # TODO: find their solutions first, and then save them
-        self.solve_all()
-        self.save()
+        self.solve_all()  # solve generated graphs
+        self.save()  # save graphs/solutions
 
     def generate(self):
         for graph_ in range(len(self.graphs), self.args.graph_nbr):
@@ -62,9 +58,11 @@ class Environment:
     def reset(self, g):
         self.games = g
         self.current_graph = self.graphs[self.games]
+        self.current_graph.approx = self.get_approx()
         self.nodes = self.current_graph.nodes()
         self.nbr_nodes_selected = 0
         self.old_edges_covered = 0
+        self.old_nodes_covered = 0
         self.last_reward = 0
         self.observation = torch.zeros(1, self.nodes, 1, dtype=torch.float)
         self.cumulative_reward = 0
@@ -73,7 +71,7 @@ class Environment:
         """Returns the current observation that the agent can make
                  of the environment, if applicable.
         """
-        return self.observation
+        return self.observation.clone()
 
     def act(self, node):
 
@@ -84,49 +82,21 @@ class Environment:
     def get_reward(self, observation, node):
 
         if self.name == "MVC":
-
-            new_nbr_nodes = np.sum(observation[0].numpy())
-
-            self.nbr_nodes_selected = new_nbr_nodes
+            self.nbr_nodes_selected = np.sum(observation[0].numpy())
 
             # Minimum vertex set:
+            done, edges_covered, nodes_covered = self.is_covered(observation)
 
-            done = True
+            avg_edges_covered = (len(self.current_graph.edges()) / self.args.node)
+            avg_edges_selected = avg_edges_covered * self.nbr_nodes_selected
+            new_edges_covered = edges_covered - self.old_edges_covered
+            new_nodes_covered = nodes_covered - self.old_nodes_covered
 
-            edges_covered = 0
+            # according to the paper, this is how the rewards are decided, (greedy - number selected)
+            reward = self.current_graph.approx - self.nbr_nodes_selected
 
-            for edge in self.current_graph.edges():
-                if observation[:, edge[0], :] == 0 and observation[:, edge[1], :] == 0:
-                    done = False
-                    # break
-                else:
-                    edges_covered += 1
-
-            # reward = ((edges_covered - self.edge_add_old) / np.max(
-            #   [1, self.graph_init.average_neighbor_degree([node])[node]]) - 10)/100
-
-            if done:
-                reward = self.args.node - self.nbr_nodes_selected
-            else:
-                avg_edges_covered = (len(self.current_graph.edges()) / self.args.node)
-                avg_edges_selected = avg_edges_covered * self.nbr_nodes_selected
-                new_edges_covered = self.old_edges_covered - edges_covered
-                ratio_covered = edges_covered / len(self.current_graph.edges())
-                ratio_uncovered = 1 - ratio_covered
-                # we want to maximize avg_edges_selected and minimize nbr_nodes_selected
-                # just because the avg_edges_selected high
-
-                if edges_covered > avg_edges_covered:
-                    reward = (new_edges_covered - avg_edges_selected)
-                    # punish if less than average edges selected
-                    # we don't want to reward bad moves that happen after a good move
-                elif new_edges_covered > avg_edges_selected:
-                    reward = 1
-                else:
-                    reward = -2
-
-                self.old_edges_covered = edges_covered
-
+            self.old_edges_covered = edges_covered
+            self.old_nodes_covered = nodes_covered
             self.cumulative_reward += reward
             return (reward, done)
 
@@ -149,7 +119,21 @@ class Environment:
 
             return (change_reward, done)
 
-    def get_approx(self, graph=None):
+    def is_covered(self, observation):
+        done = True
+        edges_covered = 0
+        nodes_covered = set()
+        for edge in self.current_graph.edges():
+            if observation[:, edge[0], :] == 0 and observation[:, edge[1], :] == 0:
+                done = False
+                # break
+            else:
+                nodes_covered.add(edge[0])
+                nodes_covered.add(edge[1])
+                edges_covered += 1
+        return done, edges_covered, len(nodes_covered)
+
+    def get_approx(self, graph=None):  # greedy approx
         if graph == None:
             graph = self.current_graph
         approx = self.approximals.get(graph, None)
@@ -157,22 +141,19 @@ class Environment:
             return approx
 
         if self.name == "MVC":
-            cover_edge = []
+            count = 0
+            nodes = list(range(self.current_graph.nodes()))
             edges = list(self.current_graph.edges())
             while len(edges) > 0:
-                edge = edges[np.random.choice(len(edges))]
-                cover_edge.append(edge[0])
-                cover_edge.append(edge[1])
-                to_remove = []
-                for edge_ in edges:
-                    if edge_[0] == edge[0] or edge_[0] == edge[1]:
-                        to_remove.append(edge_)
-                    else:
-                        if edge_[1] == edge[1] or edge_[1] == edge[0]:
-                            to_remove.append(edge_)
-                for i in to_remove:
-                    edges.remove(i)
-            return len(cover_edge)
+                # node that covers the most edges
+                best_node = max(nodes, key=lambda n: np.array(edges).flatten().tolist().count(n))
+                # filter edges covered by best_node
+                edges = list(filter(lambda e: best_node not in e, edges))
+                # remove node from node list
+                nodes.remove(best_node)
+                count += 1
+            return count
+
 
         elif self.name == "MAXCUT":
             return 1
