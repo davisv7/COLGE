@@ -24,27 +24,25 @@ environment.
 
 class DQAgent:
 
-    def __init__(self, graph, model, lr, bs, n_step):
+    def __init__(self, environment, model, lr, bs, n_step):
 
-        self.graphs = graph
+        self.train_graphs = environment.train_graphs
+        self.test_graphs = environment.test_graphs
         self.embed_dim = 64
         self.model_name = model
 
-        self.k = 20
         self.alpha = 0.1
         self.gamma = 0.99
         self.lambd = 0.
         self.n_step = n_step
 
-        self.epsilon_ = 1
-        self.epsilon_min = 0.01
+        self.decay = True  # whether or not to decay this round
+        self.epsilon_ = 1  # starting epsilon value
+        self.epsilon_min = 0.01  # minimum epsilon value
         self.decay_factor = 1  # overwritten by self.calc_convergence to converge in one epoch
-        self.memory = deque(maxlen=1)  #
-        self.memory_n = deque(maxlen=1)  #
-        self.decay = True
-        # self.eps_end=0.02
-        # self.eps_start=1
-        # self.eps_step=20000
+        self.memory = deque(maxlen=1)  # same
+        self.memory_n = deque(maxlen=1)  # same
+
         self.t = 1
         self.minibatch_length = bs
         self.games = 0
@@ -67,7 +65,7 @@ class DQAgent:
 
         elif self.model_name == 'W2V_QN':
             args_init = load_model_config()[self.model_name]
-            self.model = models.W2V_QN(G=self.graphs[self.games], **args_init)
+            self.model = models.W2V_QN(G=self.train_graphs[self.games], **args_init)
 
         self.criterion = torch.nn.MSELoss(reduction='sum')
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -86,21 +84,26 @@ class DQAgent:
         max_steps = self.nodes
         max_discounts = max_steps * games
         self.decay_factor = (self.epsilon_min / self.epsilon_) ** (1 / max_discounts)
-        self.memory = deque(maxlen=max_discounts)
-        self.memory_n = deque(maxlen=max_discounts)
+        self.memory = deque(maxlen=min(10000, max_discounts))
+        self.memory_n = deque(maxlen=min(10000, max_discounts))
 
-    def reset(self, g):
-        if g == self.games and g != 0:
+    def reset(self, g, test=False):
+        if test:
             self.decay = False
+            self.nodes = self.test_graphs[g].nodes()
+            self.adj = self.test_graphs[g].adj()
         else:
-            self.decay = True
-        self.games = g
+            if g == self.games and g != 0:
+                self.decay = False
+            else:
+                self.decay = True
+            self.games = g
 
-        if (len(self.memory_n) != 0) and (len(self.memory_n) % 300000 == 0):
-            self.memory_n = random.sample(self.memory_n, 120000)
+            if (len(self.memory_n) != 0) and (len(self.memory_n) % 300000 == 0):
+                self.memory_n = random.sample(self.memory_n, 120000)
 
-        self.nodes = self.graphs[self.games].nodes()
-        self.adj = self.graphs[self.games].adj()
+            self.nodes = self.train_graphs[self.games].nodes()
+            self.adj = self.train_graphs[self.games].adj()
         self.adj = self.adj.todense()
         self.adj = torch.from_numpy(np.expand_dims(self.adj.astype(int), axis=0))
         self.adj = self.adj.type(torch.FloatTensor)
@@ -130,7 +133,7 @@ class DQAgent:
         if len(self.memory_n) > self.minibatch_length + self.n_step:
             (last_observation_tens, action_tens, reward_tens, observation_tens, done_tens, adj_tens) = self.get_sample()
             target = reward_tens + self.gamma * (1 - done_tens) * \
-                     torch.max(self.model(observation_tens, adj_tens) + observation_tens * (-1e5), dim=1)[0]
+                     torch.max(self.model(observation_tens, adj_tens) + (observation_tens * (-1e5)), dim=1)[0]
             target_f = self.model(last_observation_tens, adj_tens)
             target_p = target_f.clone()
             target_f[range(self.minibatch_length), action_tens, :] = target
@@ -172,7 +175,7 @@ class DQAgent:
         reward_tens = torch.Tensor([[minibatch[0][2]]])
         observation_tens = minibatch[0][3]
         done_tens = torch.Tensor([[minibatch[0][4]]])
-        adj_tens = self.graphs[minibatch[0][5]].adj().todense()
+        adj_tens = self.train_graphs[minibatch[0][5]].adj().todense()
         adj_tens = torch.from_numpy(np.expand_dims(adj_tens.astype(int), axis=0)).type(torch.FloatTensor)
 
         for last_observation_, action_, reward_, observation_, done_, games_ in minibatch[-self.minibatch_length + 1:]:
@@ -181,7 +184,7 @@ class DQAgent:
             reward_tens = torch.cat((reward_tens, torch.Tensor([[reward_]])))
             observation_tens = torch.cat((observation_tens, observation_))
             done_tens = torch.cat((done_tens, torch.Tensor([[done_]])))
-            adj_ = self.graphs[games_].adj().todense()
+            adj_ = self.train_graphs[games_].adj().todense()
             adj = torch.from_numpy(np.expand_dims(adj_.astype(int), axis=0)).type(torch.FloatTensor)
             adj_tens = torch.cat((adj_tens, adj))
 
