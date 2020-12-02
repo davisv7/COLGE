@@ -16,29 +16,44 @@ This file contains the definition of the environment
 in which the agents are run.
 """
 Path("data").mkdir(exist_ok=True)
+TRAIN_PATH = join("data", "train")
+TEST_PATH = join("data", "test")
+Path(TRAIN_PATH).mkdir(exist_ok=True)
+Path(TEST_PATH).mkdir(exist_ok=True)
 
 
 class Environment:
     def __init__(self, args):
         self.args = args
-        self.graphs = {}
-        self.seeds = []
+        self.train_graphs = {}
+        self.test_graphs = {}
         self.name = args.environment_name
         self.starter_seed = random.randint(0, 100000000)
 
-        self.load()  # load existing graphs
-        self.generate()  # generate remaining graphs
+        self.load_train()  # load existing training and test graphs
+        self.load_test()  # load existing training and test graphs
+        self.generate()  # generate remaining training and test graphs
 
         self.solve_all()  # solve generated graphs
-        self.save()  # save graphs/solutions
+        self.save()  # save all graphs/solutions
 
     def generate(self):
-        for graph_ in range(len(self.graphs), self.args.graph_nbr):
+        for graph_ in range(len(self.train_graphs), self.args.graph_nbr):
             seed = self.starter_seed + graph_
             np.random.seed(seed)
-            self.seeds.append(seed)
 
-            self.graphs[graph_] = graphClass.Graph(
+            self.train_graphs[graph_] = graphClass.Graph(
+                graph_type=self.args.graph_type,
+                cur_n=self.args.node,
+                p=self.args.p,
+                m=self.args.m,
+                seed=seed)
+
+        for graph_ in range(len(self.test_graphs), self.args.test_pool):
+            seed = self.starter_seed + self.args.graph_nbr + graph_
+            np.random.seed(seed)
+
+            self.test_graphs[graph_] = graphClass.Graph(
                 graph_type=self.args.graph_type,
                 cur_n=self.args.node,
                 p=self.args.p,
@@ -46,17 +61,24 @@ class Environment:
                 seed=seed)
 
     def solve_all(self):
-        for k in self.graphs:
-            self.graphs[k].solution = self.get_optimal_sol(self.graphs[k])
+        for k in self.train_graphs:
+            self.train_graphs[k].solution = self.get_optimal_sol(self.train_graphs[k])
+
+        for k in self.test_graphs:
+            self.test_graphs[k].solution = self.get_optimal_sol(self.test_graphs[k])
 
     def approx_all(self):
-        for k in self.graphs:
-            self.get_approx(self.graphs[k])
+        for k in self.train_graphs:
+            self.get_approx(self.train_graphs[k])
         pass
 
-    def reset(self, g):
-        self.games = g
-        self.current_graph = self.graphs[self.games]
+    def reset(self, g, test=False):
+        if test:  # dont update self.games, make current graph a test graph
+            self.current_graph = self.test_graphs[g]
+        else:
+            self.games = g
+            self.current_graph = self.train_graphs[self.games]
+
         self.current_graph.approx = self.get_approx()
         self.nodes = self.current_graph.nodes()
         self.nbr_nodes_selected = 0
@@ -86,18 +108,18 @@ class Environment:
             # Minimum vertex set:
             done, edges_covered, nodes_covered = self.is_covered(observation)
 
-            avg_edges_covered = (len(self.current_graph.edges()) / self.args.node)
-            avg_edges_selected = avg_edges_covered * self.nbr_nodes_selected
-            new_edges_covered = edges_covered - self.old_edges_covered
-            new_nodes_covered = nodes_covered - self.old_nodes_covered
+            # avg_edges_covered = (len(self.current_graph.edges()) / self.args.node)
+            # avg_edges_selected = avg_edges_covered * self.nbr_nodes_selected
+            # new_edges_covered = edges_covered - self.old_edges_covered
+            # new_nodes_covered = nodes_covered - self.old_nodes_covered
 
-            # according to the paper, this is how the rewards are decided, (greedy - number selected)
-            reward = self.current_graph.approx - self.nbr_nodes_selected
+            # according to the paper, this is how the rewards are decided, (old number selected - current number selected)
+            reward = -1
 
-            self.old_edges_covered = edges_covered
-            self.old_nodes_covered = nodes_covered
+            # self.old_edges_covered = edges_covered
+            # self.old_nodes_covered = nodes_covered
             self.cumulative_reward += reward
-            return (reward, done)
+            return reward, done
 
         elif self.name == "MAXCUT":
 
@@ -229,31 +251,53 @@ class Environment:
         filename has all of the argument information in the title
         :return:
         """
-        for _graph in self.graphs.values():
-            location = join("data",
-                            f"{_graph.graph_type}_{_graph.cur_n}_{_graph.seed}_{_graph.solution}_p_{_graph.p}_m_{_graph.m}.adjlist")
-            if _graph.solution and not exists(location):
-                nx.write_adjlist(_graph.g, location)
+        for _g in self.train_graphs.values():
+            location = join(TRAIN_PATH, f"{_g.graph_type}_{_g.cur_n}_{_g.seed}_{_g.solution}_p_{_g.p}_m_{_g.m}.adjlist")
+            if _g.solution and not exists(location):
+                nx.write_adjlist(_g.g, location)
 
-    def load(self):
+        for _g in self.test_graphs.values():
+            location = join(TEST_PATH, f"{_g.graph_type}_{_g.cur_n}_{_g.seed}_{_g.solution}_p_{_g.p}_m_{_g.m}.adjlist")
+            if _g.solution and not exists(location):
+                nx.write_adjlist(_g.g, location)
+
+    def load_train(self):
         """
         List directory
         Load graphs that match the arguments
-        Add them to the dictionary and return
+        Add them to the respective dictionaries and return
         :return:
         """
         proto_graph = graphClass.Graph("prototype", self.args.node)
-
-        files = listdir("data")
+        files = listdir(TRAIN_PATH)
         eligible_graphs = filter_filenames(files, self.args)
         if len(eligible_graphs) > self.args.graph_nbr:
             random.shuffle(eligible_graphs)
         for i, filename in enumerate(eligible_graphs[:self.args.graph_nbr]):
-            graph_copy = deepcopy(proto_graph)
-            new_graph = nx.read_adjlist(join("data", filename), nodetype=int)
+            graph_shell = deepcopy(proto_graph)
+            new_graph = nx.read_adjlist(join(TRAIN_PATH, filename), nodetype=int)
             g_type, size, seed, optimal, p, m = parse_filename(filename)
-            graph_copy.replicate(g_type, new_graph, size, seed, optimal, m, p)
-            self.graphs[i] = graph_copy
+            graph_shell.replicate(g_type, new_graph, size, seed, optimal, m, p)
+            self.train_graphs[i] = graph_shell
+
+    def load_test(self):
+        """
+        List directory
+        Load graphs that match the arguments
+        Add them to the respective dictionaries and return
+        :return:
+        """
+        proto_graph = graphClass.Graph("prototype", self.args.node)
+        files = listdir(TEST_PATH)
+        eligible_graphs = filter_filenames(files, self.args)
+        if len(eligible_graphs) > self.args.graph_nbr:
+            random.shuffle(eligible_graphs)
+        for i, filename in enumerate(eligible_graphs[:self.args.test_pool]):
+            graph_shell = deepcopy(proto_graph)
+            new_graph = nx.read_adjlist(join(TEST_PATH, filename), nodetype=int)
+            g_type, size, seed, optimal, p, m = parse_filename(filename)
+            graph_shell.replicate(g_type, new_graph, size, seed, optimal, m, p)
+            self.test_graphs[i] = graph_shell
 
 # TODO: Testing Environment vs Training Environment
 # How to share the models? Or just have a separate method...
